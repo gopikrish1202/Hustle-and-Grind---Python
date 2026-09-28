@@ -51,3 +51,16 @@ match n:
         li = multiplication(a,b)
         for i in li:
             print(i)
+
+    case 3:
+        a=int(input("Enter the range: "))
+        oddEven(a)          
+
+    case 4:
+        a=int(input("Enter the range: "))
+        fib(a)
+
+        
+
+
+
