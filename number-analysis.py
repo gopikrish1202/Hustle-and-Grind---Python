@@ -40,8 +40,10 @@ def palindrome(num):
         # print("Not a palindrome")
         return False
 # palindrome(121)
-
+#test commit
 def gcd(a,b):
+
+
     a_list=[]
     b_list=[]
     common = []
@@ -59,8 +61,6 @@ def gcd(a,b):
                 common.append(a_list[i])
 
     print(max(common))
-# gcd(20,28)
-
 
 
 
