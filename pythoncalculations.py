@@ -51,8 +51,7 @@ match n:
         li = multiplication(a,b)
         for i in li:
             print(i)
-        # for i in multi:
-        #     print(i)
+
 
 
 
