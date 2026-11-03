@@ -1,10 +1,9 @@
-from flask import Flask
+from flask import Flask,  render_template
 
 app = Flask(__name__)
 
 @app.route("/") #def endpoint
 def home():
-    return "<h1>Task Manager is running!</h1><p>Lesson 2 complete - Gopi</p>"
-
+    return render_template("home.html", name="Gopi") #(source data, parameters)
 if __name__ == "__main__":
     app.run(debug=True)
