@@ -2,6 +2,23 @@
 {% block content %}
   <h1>Task Manager is running!</h1>
   <p>Hello, {{ email }}. You are logged in.</p>
-  <p>Tasks will appear here in the next lesson.</p>
+
+  <h2>Add a note</h2>
+  <form method="post">
+    <input type="text" name="note" placeholder="Write a note...">
+    <button type="submit">Save note</button>
+  </form>
+
+  <h2>My notes</h2>
+  {% if notes %}
+    <ol>
+      {% for n in notes %}
+        <li>{{ n["note"] }}</li>
+      {% endfor %}
+    </ol>
+  {% else %}
+    <p>No notes yet.</p>
+  {% endif %}
+
   <p><a href="{{ url_for('logout') }}">Log out</a></p>
 {% endblock %}

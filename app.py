@@ -11,6 +11,8 @@ DATABASE = "task_manager.db"
 def get_db():
     conn = sqlite3.connect(DATABASE) #connection establish
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+
     return conn
 
 def init_db():
@@ -21,18 +23,52 @@ def init_db():
             email TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            
         )
         """)
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS notes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        note TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+    )
+    """)
+
     conn.commit()
     conn.close()
 
 init_db()
 
-@app.route("/") #always - default routing - login success page of home
+@app.route("/", methods=["GET", "POST"])
 def home():
     if "user_id" not in session:
         return redirect(url_for("login"))
-    return render_template("home.html", email=session["user_email"])
+
+    conn = get_db()
+
+    if request.method == "POST":
+        note = request.form["note"].strip()
+        if not note:
+            flash("Note cannot be empty.")
+        else:
+            conn.execute(
+                "INSERT INTO notes (user_id, note) VALUES (?, ?)",
+                (session["user_id"], note),
+            )
+            conn.commit()
+            conn.close()
+            flash("Note saved.")
+            return redirect(url_for("home"))
+
+    notes = conn.execute(
+        "SELECT * FROM notes WHERE user_id = ? ORDER BY id DESC",
+        (session["user_id"],),
+    ).fetchall()
+    conn.close()
+    return render_template("home.html", email=session["user_email"], notes=notes)
+
 
 
 
