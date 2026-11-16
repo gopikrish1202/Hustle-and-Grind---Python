@@ -1,14 +1,224 @@
 <!DOCTYPE html>
-<html>
-<head><title>Task Manager</title></head>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Task Manager{% endblock %}</title>
+<style>
+  :root {
+    --navy: #1A1F31;
+    --wave: #4973FF;
+    --card: rgba(56, 60, 76, 0.88);
+    --card-border: rgba(255, 255, 255, 0.12);
+    --blue: #1F5FCC;
+    --blue-hover: #18499E;
+    --green: #1DB954;
+    --text: #F4F6FB;
+    --muted: #9AA3B2;
+    --dark: #1C2333;
+    --row-bg: #FAFAFA;
+    --danger: #E5484D;
+    --radius: 20px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--navy);
+    color: var(--text);
+    font-family: ui-rounded, "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  /* Blue wave sweeping up from the bottom, like the reference dashboard */
+  .wave {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    height: 220px;
+    z-index: 0;
+    pointer-events: none;
+  }
+  .page { position: relative; z-index: 1; max-width: 720px; margin: 0 auto; padding: 20px 16px 240px; }
+  /* Top bar */
+  .topbar { display: flex; align-items: center; justify-content: space-between; padding: 8px 4px 20px; }
+  .brand { font-size: 20px; font-weight: 800; letter-spacing: 0.2px; text-decoration: none; color: var(--text); }
+  .brand span { color: var(--wave); }
+  .nav { display: flex; gap: 6px; align-items: center; }
+  .nav a { color: var(--muted); text-decoration: none; font-weight: 600; font-size: 14px; padding: 8px 12px; border-radius: 999px; }
+  .nav a:hover { color: var(--text); background: rgba(255, 255, 255, 0.08); }
+  /* Card */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius);
+    padding: 28px 28px 32px;
+    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(8px);
+  }
+  h1 { margin: 0 0 4px; font-size: 34px; line-height: 1.15; }
+  .subtitle { color: var(--muted); margin: 0 0 22px; font-size: 15px; }
+  /* Flash messages */
+  .flash {
+    background: rgba(255, 255, 255, 0.08);
+    border-left: 4px solid var(--blue);
+    border-radius: 10px;
+    padding: 10px 14px;
+    margin: 0 0 16px;
+    font-size: 14px;
+  }
+  /* Buttons */
+  .btn {
+    display: inline-block;
+    background: var(--blue);
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    padding: 12px 20px;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    text-decoration: none;
+  }
+  .btn:hover { background: var(--blue-hover); }
+  .btn-dark { background: #2A2A2A; }
+  .btn-dark:hover { background: #000; }
+  .btn-danger { background: transparent; color: var(--danger); border: 1px solid rgba(229, 72, 77, 0.5); padding: 8px 14px; font-size: 13px; }
+  .btn-danger:hover { background: rgba(229, 72, 77, 0.12); }
+  .btn-ghost { background: transparent; color: var(--muted); border: 1px solid rgba(255, 255, 255, 0.2); padding: 10px 16px; font-size: 14px; }
+  .btn-ghost:hover { color: var(--text); }
+  /* Filter pills */
+  .filters { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 8px; }
+  .pill {
+    padding: 8px 16px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text);
+    text-decoration: none;
+    font-size: 13px;
+    font-weight: 700;
+    border: 1px solid transparent;
+  }
+  .pill:hover { background: rgba(255, 255, 255, 0.14); }
+  .pill.active { background: var(--blue); border-color: var(--blue); }
+  .count { color: var(--muted); font-size: 13px; margin: 0 0 18px; }
+  /* Task rows */
+  .task-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+  .task-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--row-bg);
+    color: var(--dark);
+    border-radius: 12px;
+    padding: 12px 14px;
+  }
+  .task-row.done .task-title { text-decoration: line-through; color: #8A93A6; }
+  .task-main { flex: 1; min-width: 0; }
+  .task-title { font-weight: 700; font-size: 15px; }
+  .task-meta { font-size: 13px; color: #6B7488; margin-top: 2px; }
+  .check {
+    flex: none;
+    width: 34px; height: 34px;
+    border-radius: 50%;
+    border: 2px solid #C9D1DE;
+    background: #fff;
+    font-size: 17px;
+    line-height: 1;
+    cursor: pointer;
+    color: var(--green);
+  }
+  .check:hover { border-color: var(--green); }
+  .task-row.done .check { background: var(--green); border-color: var(--green); color: #fff; }
+  .task-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+  .task-actions form { margin: 0; }
+  .icon-btn {
+    background: none; border: none; cursor: pointer;
+    font-size: 15px; padding: 6px; border-radius: 8px; color: #6B7488;
+  }
+  .icon-btn:hover { background: rgba(0, 0, 0, 0.06); }
+  .edit-link { color: var(--blue); font-weight: 700; font-size: 13px; text-decoration: none; padding: 6px 4px; }
+  .edit-link:hover { text-decoration: underline; }
+  /* Status + priority badges */
+  .badge {
+    display: inline-block;
+    font-size: 11px; font-weight: 800; letter-spacing: 0.4px;
+    padding: 3px 9px; border-radius: 999px; text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .badge-active { background: #E4EBFA; color: var(--blue); }
+  .badge-done { background: #DFF5E6; color: #157347; }
+  .badge-high { background: #FDE8E8; color: #C81E1E; }
+  .badge-medium { background: #FEF3C7; color: #92400E; }
+  .badge-low { background: #E0F2FE; color: #0369A1; }
+  .badge-overdue { background: #FDE8E8; color: #C81E1E; }
+  /* Forms */
+  .field { margin: 0 0 16px; }
+  .field label { display: block; font-weight: 700; font-size: 13px; margin-bottom: 6px; color: var(--text); }
+  .field input, .field select {
+    width: 100%;
+    padding: 12px 14px;
+    font-size: 15px;
+    font-family: inherit;
+    border: 1px solid #D7DCE6;
+    border-radius: 10px;
+    background: #fff;
+    color: var(--dark);
+  }
+  .field input:focus, .field select:focus { outline: 2px solid var(--blue); outline-offset: 1px; border-color: var(--blue); }
+  .form-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
+  .form-actions .spacer { flex: 1; }
+  .back-link { display: inline-block; margin-top: 18px; color: var(--muted); font-size: 14px; text-decoration: none; }
+  .back-link:hover { color: var(--text); }
+  /* Auth pages: centred white card, like the reference register page */
+  .auth-wrap { display: flex; justify-content: center; padding-top: 6vh; }
+  .auth-card {
+    width: 100%; max-width: 400px;
+    background: #fff; color: var(--dark);
+    border-radius: 16px; padding: 32px 28px;
+    box-shadow: 0 20px 45px rgba(0, 0, 0, 0.4);
+  }
+  .auth-card h1 { font-size: 24px; color: #111; text-align: center; }
+  .auth-card .subtitle { text-align: center; color: #6B7488; }
+  .auth-card .field label { color: var(--dark); }
+  .auth-card .btn { width: 100%; padding: 13px; border-radius: 12px; }
+  .auth-switch { text-align: center; font-size: 14px; color: #6B7488; margin: 16px 0 0; }
+  .auth-switch a { color: var(--blue); font-weight: 700; text-decoration: none; }
+  /* Empty state */
+  .empty { text-align: center; padding: 28px 12px 8px; color: var(--muted); }
+  .empty .big { font-size: 40px; margin-bottom: 8px; }
+  @media (max-width: 560px) {
+    .card { padding: 22px 18px 26px; }
+    h1 { font-size: 27px; }
+    .task-meta { font-size: 12px; }
+  }
+</style>
+</head>
 <body>
-  {% with messages = get_flashed_messages() %}
-    {% if messages %}
-      {% for message in messages %}
-        <p style="color: red;">{{ message }}</p>
-      {% endfor %}
-    {% endif %}
-  {% endwith %}
-  {% block content %}{% endblock %}
+  <svg class="wave" viewBox="0 0 1440 320" preserveAspectRatio="none" aria-hidden="true">
+    <path fill="#4973FF" d="M0,224 L48,213 C96,203 192,181 288,170 C384,160 480,160 576,170 C672,181 768,203 864,208 C960,213 1056,203 1152,181 C1248,160 1344,128 1392,112 L1440,96 L1440,320 L1392,320 C1344,320 1248,320 1152,320 C1056,320 960,320 864,320 C768,320 672,320 576,320 C480,320 384,320 288,320 C192,320 96,320 48,320 L0,320 Z"></path>
+  </svg>
+  <div class="page">
+    <header class="topbar">
+      <a class="brand" href="{{ url_for('list_tasks') }}">✓ Task<span>Manager</span></a>
+      {% if session.get("user_id") %}
+      <nav class="nav">
+        <a href="{{ url_for('list_tasks') }}">Tasks</a>
+        <a href="{{ url_for('logout') }}">Log out</a>
+      </nav>
+      {% endif %}
+    </header>
+
+    {% with messages = get_flashed_messages() %}
+      {% if messages %}
+        {% for message in messages %}
+          <p class="flash">{{ message }}</p>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    {% block content %}{% endblock %}
+  </div>
 </body>
 </html>

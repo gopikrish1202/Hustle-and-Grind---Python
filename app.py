@@ -209,6 +209,47 @@ def new_task():
     return render_template("task_form.html", task=None, form_action=url_for("new_task"))
 
 
+@app.route("/tasks/<int:task_id>/toggle", methods=["POST"])
+def toggle_task(task_id):
+    redirect_to_login = require_login()
+    if redirect_to_login:
+        return redirect_to_login
+    conn = get_db()
+    task = get_task(conn, task_id)
+    if task is None:
+        conn.close()
+        flash("Task not found.")
+        return redirect(url_for("list_tasks"))
+    conn.execute(
+        "UPDATE tasks SET is_done = ? WHERE id = ? AND user_id = ?",
+        (0 if task["is_done"] else 1, task_id, session["user_id"]),
+    )
+    conn.commit()
+    conn.close()
+    return redirect(url_for("list_tasks"))
+
+
+@app.route("/tasks/<int:task_id>/delete", methods=["POST"])
+def delete_task(task_id):
+    redirect_to_login = require_login()
+    if redirect_to_login:
+        return redirect_to_login
+    conn = get_db()
+    task = get_task(conn, task_id)
+    if task is None:
+        conn.close()
+        flash("Task not found.")
+        return redirect(url_for("list_tasks"))
+    conn.execute(
+        "DELETE FROM tasks WHERE id = ? AND user_id = ?", (task_id, session["user_id"])
+    )
+    conn.commit()
+    conn.close()
+    flash("Task deleted.")
+    return redirect(url_for("list_tasks"))
+
+
+
 @app.route("/register", methods=["GET", "POST"]) #get - view, #post- create
 def register():
     if request.method == "POST":

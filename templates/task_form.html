@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}{% if task %}Edit task{% else %}New task{% endif %} · Task Manager{% endblock %}
+{% block content %}
+<div class="card">
+  <h1>{% if task %}Edit task{% else %}New task{% endif %}</h1>
+  <p class="subtitle">{% if task %}Update the details below.{% else %}What do you need to get done?{% endif %}</p>
+  <form method="post" action="{{ form_action }}">
+    <div class="field">
+      <label for="title">Title</label>
+      <input id="title" type="text" name="title" value="{{ task['title'] if task else '' }}" placeholder="e.g. Buy milk" required>
+    </div>
+    <div class="field">
+      <label for="description">Description</label>
+      <input id="description" type="text" name="description" value="{{ task['description'] if task else '' }}" placeholder="e.g. 2 litres">
+    </div>
+    <div class="field">
+      <label for="due_date">Due date</label>
+      <input id="due_date" type="date" name="due_date" value="{{ task['due_date'] if task and task['due_date'] else '' }}">
+    </div>
+    <div class="field">
+      <label for="priority">Priority</label>
+      <select id="priority" name="priority">
+        <option value="Low" {% if task and task['priority'] == 'Low' %}selected{% endif %}>Low</option>
+        <option value="Medium" {% if not task or task['priority'] == 'Medium' %}selected{% endif %}>Medium</option>
+        <option value="High" {% if task and task['priority'] == 'High' %}selected{% endif %}>High</option>
+      </select>
+    </div>
+    <div class="form-actions">
+      <button class="btn" type="submit">Save</button>
+      <a class="btn-ghost btn" href="{{ url_for('list_tasks') }}">Cancel</a>
+    </div>
+  </form>
+  {% if task %}
+  <form method="post" action="{{ url_for('delete_task', task_id=task['id']) }}" onsubmit="return confirm('Delete this task?');" style="margin-top: 12px;">
+    <button class="btn-danger btn" type="submit">Delete</button>
+  </form>
+  {% endif %}
+  <a class="back-link" href="{{ url_for('list_tasks') }}">← Back to tasks</a>
+</div>
+{% endblock %}

@@ -1,11 +1,26 @@
 {% extends "base.html" %}
+{% block title %}Sign up · Task Manager{% endblock %}
 {% block content %}
-  <h1>Create your account</h1>
-  <form method="post">
-    <p>Email: <input type="email" name="email" required></p>
-    <p>Password: <input type="password" name="password" required></p>
-    <p>Confirm password: <input type="password" name="confirm" required></p>
-    <p><button type="submit">Sign up</button></p>
-  </form>
-  <p>Already have an account? <a href="{{ url_for('login') }}">Log in</a></p>
+<div class="auth-wrap">
+  <div class="auth-card">
+    <h1>Create your account</h1>
+    <p class="subtitle">Start organising your tasks</p>
+    <form method="post">
+      <div class="field">
+        <label for="email">Email</label>
+        <input id="email" type="email" name="email" placeholder="you@example.com" required>
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input id="password" type="password" name="password" placeholder="At least 6 characters" required>
+      </div>
+      <div class="field">
+        <label for="confirm">Confirm password</label>
+        <input id="confirm" type="password" name="confirm" placeholder="Repeat your password" required>
+      </div>
+      <button class="btn btn-dark" type="submit">Sign up</button>
+    </form>
+    <p class="auth-switch">Already have an account? <a href="{{ url_for('login') }}">Log in</a></p>
+  </div>
+</div>
 {% endblock %}

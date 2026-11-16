@@ -1,26 +1,38 @@
 {% extends "base.html" %}
+{% block title %}My notes · Task Manager{% endblock %}
 {% block content %}
+<div class="card">
   <h1>Task Manager is running!</h1>
-  <p>Hello, {{ email }}. You are logged in.</p>
-  <p><a href="{{ url_for('list_tasks') }}">My tasks</a></p>
+  <p class="subtitle">Hello, {{ email }}. You are logged in.</p>
 
-
-  <h2>Add a note</h2>
+  <h2 style="font-size: 20px; margin: 0 0 12px;">Add a note</h2>
   <form method="post">
-    <input type="text" name="note" placeholder="Write a note...">
-    <button type="submit">Save note</button>
+    <div class="field">
+      <label for="note">Note</label>
+      <input id="note" type="text" name="note" placeholder="Write a note...">
+    </div>
+    <button class="btn" type="submit">Save note</button>
   </form>
 
-  <h2>My notes</h2>
+  <h2 style="font-size: 20px; margin: 28px 0 12px;">My notes</h2>
   {% if notes %}
-    <ol>
+    <ul class="task-list">
       {% for n in notes %}
-        <li>{{ n["note"] }}</li>
+        <li class="task-row">
+          <div class="task-main">
+            <div class="task-title" style="font-weight: 600;">{{ n["note"] }}</div>
+            <div class="task-meta">{{ n["created_at"] }}</div>
+          </div>
+        </li>
       {% endfor %}
-    </ol>
+    </ul>
   {% else %}
-    <p>No notes yet.</p>
+    <div class="empty">
+      <div class="big">📝</div>
+      <p>No notes yet.</p>
+    </div>
   {% endif %}
 
-  <p><a href="{{ url_for('logout') }}">Log out</a></p>
+  <p style="margin-top: 20px;"><a class="btn-ghost btn" href="{{ url_for('list_tasks') }}">Go to my tasks →</a></p>
+</div>
 {% endblock %}

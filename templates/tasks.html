@@ -1,29 +1,55 @@
 {% extends "base.html" %}
+{% block title %}My tasks · Task Manager{% endblock %}
 {% block content %}
-  <h1>My tasks</h1>
-  <p><a href="{{ url_for('new_task') }}">+ New task</a></p>
+<div class="card">
+  <h1>Hi{% if session.get("user_email") %}, {{ session.get("user_email").split("@")[0] }}{% endif %} 👋</h1>
+  <p class="subtitle">Stay focused. One task at a time.</p>
 
-  <p>
-    <a href="{{ url_for('list_tasks', filter='all') }}">All</a> |
-    <a href="{{ url_for('list_tasks', filter='pending') }}">Pending</a> |
-    <a href="{{ url_for('list_tasks', filter='done') }}">Done</a> |
-    <a href="{{ url_for('list_tasks', filter='overdue') }}">Overdue</a>
-  </p>
-  <p>Showing: {{ task_filter }}</p>
+  <p style="margin: 0 0 20px;"><a class="btn" href="{{ url_for('new_task') }}">+ New task</a></p>
+
+  <div class="filters">
+    <a class="pill {% if task_filter == 'all' %}active{% endif %}" href="{{ url_for('list_tasks', filter='all') }}">All</a>
+    <a class="pill {% if task_filter == 'pending' %}active{% endif %}" href="{{ url_for('list_tasks', filter='pending') }}">Pending</a>
+    <a class="pill {% if task_filter == 'done' %}active{% endif %}" href="{{ url_for('list_tasks', filter='done') }}">Done</a>
+    <a class="pill {% if task_filter == 'overdue' %}active{% endif %}" href="{{ url_for('list_tasks', filter='overdue') }}">Overdue</a>
+  </div>
+  <p class="count">{{ tasks|length }} task{{ 's' if tasks|length != 1 else '' }} · showing {{ task_filter }}</p>
 
   {% if tasks %}
-    <ul>
+    <ul class="task-list">
       {% for t in tasks %}
-      <a href="{{ url_for('edit_task', task_id=t['id']) }}">Edit</a>
-        <li>
-          <strong>{{ t['title'] }}</strong>
-          [{{ t['priority'] }}]
-          {% if t['due_date'] %} due {{ t['due_date'] }}{% endif %}
-          {% if t['description'] %} — {{ t['description'] }}{% endif %}
+        <li class="task-row {% if t['is_done'] %}done{% endif %}">
+          <form method="post" action="{{ url_for('toggle_task', task_id=t['id']) }}" style="margin:0;">
+            <button class="check" type="submit" title="{% if t['is_done'] %}Mark as not done{% else %}Mark completed{% endif %}" aria-label="Mark completed">{% if t['is_done'] %}✓{% else %}○{% endif %}</button>
+          </form>
+          <div class="task-main">
+            <div class="task-title">{{ t['title'] }}</div>
+            <div class="task-meta">
+              <span class="badge badge-{{ t['priority']|lower }}">{{ t['priority'] }}</span>
+              {% if t['due_date'] %} · due {{ t['due_date'] }}{% endif %}
+              {% if t['description'] %} · {{ t['description'] }}{% endif %}
+            </div>
+          </div>
+          {% if t['is_done'] %}
+            <span class="badge badge-done">Done</span>
+          {% else %}
+            <span class="badge badge-active">Active</span>
+          {% endif %}
+          <div class="task-actions">
+            <a class="edit-link" href="{{ url_for('edit_task', task_id=t['id']) }}">Edit</a>
+            <form method="post" action="{{ url_for('delete_task', task_id=t['id']) }}" onsubmit="return confirm('Delete this task?');">
+              <button class="icon-btn" type="submit" title="Delete" aria-label="Delete">🗑️</button>
+            </form>
+          </div>
         </li>
       {% endfor %}
     </ul>
   {% else %}
-    <p>No tasks here yet.</p>
+    <div class="empty">
+      <div class="big">📝</div>
+      <p>No tasks here yet.</p>
+      <p><a class="btn" href="{{ url_for('new_task') }}">Create your first task</a></p>
+    </div>
   {% endif %}
+</div>
 {% endblock %}
