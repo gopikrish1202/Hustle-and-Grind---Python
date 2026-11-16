@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block content %}
+  <h1>My tasks</h1>
+  <p><a href="{{ url_for('new_task') }}">+ New task</a></p>
+
+  <p>
+    <a href="{{ url_for('list_tasks', filter='all') }}">All</a> |
+    <a href="{{ url_for('list_tasks', filter='pending') }}">Pending</a> |
+    <a href="{{ url_for('list_tasks', filter='done') }}">Done</a> |
+    <a href="{{ url_for('list_tasks', filter='overdue') }}">Overdue</a>
+  </p>
+  <p>Showing: {{ task_filter }}</p>
+
+  {% if tasks %}
+    <ul>
+      {% for t in tasks %}
+      <a href="{{ url_for('edit_task', task_id=t['id']) }}">Edit</a>
+        <li>
+          <strong>{{ t['title'] }}</strong>
+          [{{ t['priority'] }}]
+          {% if t['due_date'] %} due {{ t['due_date'] }}{% endif %}
+          {% if t['description'] %} — {{ t['description'] }}{% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p>No tasks here yet.</p>
+  {% endif %}
+{% endblock %}
