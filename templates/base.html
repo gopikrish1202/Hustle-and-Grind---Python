@@ -121,7 +121,7 @@
   .check {
     flex: none;
     width: 34px; height: 34px;
-    border-radius: 50%;
+    border-radius: 6px;
     border: 2px solid #C9D1DE;
     background: #fff;
     font-size: 17px;
@@ -130,6 +130,8 @@
     color: var(--green);
   }
   .check:hover { border-color: var(--green); }
+  .drag-handle { flex: none; cursor: grab; color: #9AA3B2; font-size: 16px; line-height: 1; }
+  .task-row.dragging { opacity: 0.4; }
   .task-row.done .check { background: var(--green); border-color: var(--green); color: #fff; }
   .task-actions { display: flex; align-items: center; gap: 8px; flex: none; }
   .task-actions form { margin: 0; }

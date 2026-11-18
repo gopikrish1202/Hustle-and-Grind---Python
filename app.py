@@ -1,7 +1,9 @@
 import sqlite3
 
-from flask import Flask, flash, redirect, render_template, request, session, url_for
+# from flask import Flask, flash, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
+from flask import Flask, flash, jsonify, redirect, render_template, request, session, url_for
+
 
 app = Flask(__name__)
 app.secret_key = "dev-secret-change-later"
@@ -45,12 +47,18 @@ def init_db():
         due_date TEXT,
         priority TEXT NOT NULL DEFAULT 'Medium',
         is_done INTEGER NOT NULL DEFAULT 0,
+        position INTEGER NOT NULL DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
     )
     """)
-
+    cols = [r["name"] for r in conn.execute("PRAGMA table_info(tasks)").fetchall()]
+    if "position" not in cols:
+        conn.execute("ALTER TABLE tasks ADD COLUMN position INTEGER NOT NULL DEFAULT 0")
+        rows = conn.execute("SELECT id FROM tasks ORDER BY id DESC").fetchall()
+        for pos, row in enumerate(rows):
+            conn.execute("UPDATE tasks SET position = ? WHERE id = ?", (pos, row["id"]))
 
     conn.commit()
     conn.close()
@@ -112,12 +120,12 @@ def list_tasks():
     conn = get_db()
     if task_filter == "pending":
         tasks = conn.execute(
-            "SELECT * FROM tasks WHERE user_id = ? AND is_done = 0 ORDER BY id DESC",
+            "SELECT * FROM tasks WHERE user_id = ? AND is_done = 0 ORDER BY position ASC, id DESC",
             (session["user_id"],),
         ).fetchall()
     elif task_filter == "done":
         tasks = conn.execute(
-            "SELECT * FROM tasks WHERE user_id = ? AND is_done = 1 ORDER BY id DESC",
+            "SELECT * FROM tasks WHERE user_id = ? AND is_done = 1 ORDER BY position ASC, id DESC",
             (session["user_id"],),
         ).fetchall()
     elif task_filter == "overdue":
@@ -130,7 +138,7 @@ def list_tasks():
     else:
         task_filter = "all"
         tasks = conn.execute(
-            "SELECT * FROM tasks WHERE user_id = ? ORDER BY id DESC",
+            "SELECT * FROM tasks WHERE user_id = ? ORDER BY position ASC, id DESC",
             (session["user_id"],),
         ).fetchall()
     conn.close()
@@ -196,10 +204,16 @@ def new_task():
             return render_template("task_form.html", task=None, form_action=url_for("new_task"))
 
         conn = get_db()
+        row = conn.execute(
+            "SELECT COALESCE(MIN(position), 0) AS min_pos FROM tasks WHERE user_id = ?",
+            (session["user_id"],),
+        ).fetchone()
+        position = row["min_pos"] - 1
+
         conn.execute(
-            "INSERT INTO tasks (user_id, title, description, due_date, priority) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (session["user_id"], title, description, due_date, priority),
+            "INSERT INTO tasks (user_id, title, description, due_date, priority, position) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (session["user_id"], title, description, due_date, priority, position),
         )
         conn.commit()
         conn.close()
@@ -247,6 +261,35 @@ def delete_task(task_id):
     conn.close()
     flash("Task deleted.")
     return redirect(url_for("list_tasks"))
+
+
+@app.route("/tasks/reorder", methods=["POST"])
+def reorder_tasks():
+    redirect_to_login = require_login()
+    if redirect_to_login:
+        return redirect_to_login
+
+    data = request.get_json(silent=True) or {}
+    conn = get_db()
+    own_ids = [r["id"] for r in conn.execute(
+        "SELECT id FROM tasks WHERE user_id = ? ORDER BY position ASC, id DESC",
+        (session["user_id"],)).fetchall()]
+    wanted = []
+    for tid in data.get("order", []):
+        try:
+            tid = int(tid)
+        except (TypeError, ValueError):
+            continue
+        if tid in own_ids and tid not in wanted:
+            wanted.append(tid)
+    rest = [tid for tid in own_ids if tid not in wanted]
+    for pos, tid in enumerate(wanted + rest):
+        conn.execute(
+            "UPDATE tasks SET position = ? WHERE id = ? AND user_id = ?",
+            (pos, tid, session["user_id"]))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
 
 
 
@@ -304,3 +347,10 @@ def logout():
 
 if __name__ == "__main__":
     app.run(debug=True)
+
+# cols = [r["name"] for r in conn.execute("PRAGMA table_info(tasks)").fetchall()]
+# if "position" not in cols:
+#     conn.execute("ALTER TABLE tasks ADD COLUMN position INTEGER NOT NULL DEFAULT 0")
+#     rows = conn.execute("SELECT id FROM tasks ORDER BY id DESC").fetchall()
+#     for pos, row in enumerate(rows):
+#         conn.execute("UPDATE tasks SET position = ? WHERE id = ?", (pos, row["id"]))

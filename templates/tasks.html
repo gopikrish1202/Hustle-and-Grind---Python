@@ -14,13 +14,19 @@
     <a class="pill {% if task_filter == 'overdue' %}active{% endif %}" href="{{ url_for('list_tasks', filter='overdue') }}">Overdue</a>
   </div>
   <p class="count">{{ tasks|length }} task{{ 's' if tasks|length != 1 else '' }} · showing {{ task_filter }}</p>
+  {% if task_filter != 'all' %}
+  <p class="count">Drag to reorder is on the All view — filters only show a slice of the list.</p>
+  {% endif %}
 
   {% if tasks %}
     <ul class="task-list">
       {% for t in tasks %}
-        <li class="task-row {% if t['is_done'] %}done{% endif %}">
+        <li class="task-row {% if t['is_done'] %}done{% endif %}"
+            data-task-id="{{ t['id'] }}"
+            {% if task_filter == 'all' %}draggable="true"{% endif %}>
+          {% if task_filter == 'all' %}<span class="drag-handle" title="Drag to reorder">⠿</span>{% endif %}
           <form method="post" action="{{ url_for('toggle_task', task_id=t['id']) }}" style="margin:0;">
-            <button class="check" type="submit" title="{% if t['is_done'] %}Mark as not done{% else %}Mark completed{% endif %}" aria-label="Mark completed">{% if t['is_done'] %}✓{% else %}○{% endif %}</button>
+            <button class="check" type="submit" title="{% if t['is_done'] %}Mark as not done{% else %}Mark completed{% endif %}" aria-label="Mark completed">{% if t['is_done'] %}✓{% endif %}</button>
           </form>
           <div class="task-main">
             <div class="task-title">{{ t['title'] }}</div>
@@ -52,4 +58,42 @@
     </div>
   {% endif %}
 </div>
+
+{% if task_filter == 'all' %}
+<script>
+  // Drag and drop: reorder rows live, then save the new order.
+  const list = document.querySelector('.task-list');
+  if (list) {
+    let dragged = null;
+    list.querySelectorAll('.task-row').forEach(row => {
+      row.addEventListener('dragstart', () => {
+        dragged = row;
+        row.classList.add('dragging');
+      });
+      row.addEventListener('dragend', () => {
+        row.classList.remove('dragging');
+        saveOrder();
+      });
+      row.addEventListener('dragover', e => {
+        e.preventDefault();
+        const after = [...list.querySelectorAll('.task-row:not(.dragging)')].find(
+          r => e.clientY < r.getBoundingClientRect().top + r.offsetHeight / 2
+        );
+        if (after) list.insertBefore(dragged, after);
+        else list.appendChild(dragged);
+      });
+    });
+    function saveOrder() {
+      const order = [...list.querySelectorAll('.task-row')].map(
+        row => Number(row.dataset.taskId)
+      );
+      fetch('{{ url_for('reorder_tasks') }}', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order })
+      }).then(r => { if (!r.ok) location.reload(); });
+    }
+  }
+</script>
+{% endif %}
 {% endblock %}
