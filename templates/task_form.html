@@ -15,7 +15,8 @@
     </div>
     <div class="field">
       <label for="due_date">Due date</label>
-      <input id="due_date" type="date" name="due_date" value="{{ task['due_date'] if task and task['due_date'] else '' }}">
+      <input type="date" name="due_date" min="{{ today }}"
+       value="{{ task.due_date if task else '' }}">
     </div>
     <div class="field">
       <label for="priority">Priority</label>

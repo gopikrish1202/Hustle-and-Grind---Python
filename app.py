@@ -1,111 +1,151 @@
-import sqlite3
-
-# from flask import Flask, flash, redirect, render_template, request, session, url_for
-from werkzeug.security import check_password_hash, generate_password_hash
+import os
+from datetime import date, datetime, timezone
+from zoneinfo import ZoneInfo
+from bson import ObjectId
+from bson.errors import InvalidId
+from dotenv import load_dotenv
 from flask import Flask, flash, jsonify, redirect, render_template, request, session, url_for
-
+from pymongo import MongoClient
+from pymongo.errors import DuplicateKeyError, ServerSelectionTimeoutError
+from werkzeug.security import check_password_hash, generate_password_hash
 
 app = Flask(__name__)
+# Needed to sign the session cookie. In production (AWS) this will come
+# from an environment variable, never from code.
 app.secret_key = "dev-secret-change-later"
 
-DATABASE = "task_manager.db"
+# --- MongoDB Atlas connection -------------------------------------------
+# load_dotenv() reads the .env file in the project folder (dev only).
+# .env holds MONGO_URI, the connection string from Atlas. It is in
+# .gitignore, so it never goes to git. Never paste it in chat.
+load_dotenv()
 
-def get_db():
-    conn = sqlite3.connect(DATABASE) #connection establish
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
+MONGO_URI = os.environ.get("MONGO_URI")
+if not MONGO_URI:
+    raise RuntimeError(
+        "MONGO_URI is not set. Copy .env.example to .env and fill in "
+        "your Atlas connection string."
+    ) #error - manually throw
 
-    return conn
+MONGO_DB = os.environ.get("MONGO_DB", "task_manager")
+
+client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+db = client[MONGO_DB]
+users_col = db["users"] #column
+tasks_col = db["tasks"]
+notes_col = db["notes"]
+
 
 def init_db():
-    conn = get_db()
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            email TEXT UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            
+    """Check the cluster is reachable and prepare the collections.
+
+    MongoDB has no CREATE TABLE: a collection appears when the first
+    document is inserted. The one thing we do create up front is a
+    unique index on users.email, so the same email cannot register twice.
+    """
+    try:
+        client.admin.command("ping")
+    except ServerSelectionTimeoutError:
+        raise RuntimeError(
+            "Could not reach MongoDB Atlas. Check MONGO_URI in .env, "
+            "and that your IP is whitelisted in Atlas -> Network Access."
         )
-        """)
-    # conn.execute("""
-    # CREATE TABLE IF NOT EXISTS notes (
-    #     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    #     user_id INTEGER NOT NULL,
-    #     note TEXT NOT NULL,
-    #     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    #     FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
-    # )
-    # """)
+    users_col.create_index("email", unique=True)
 
-    conn.execute("""
-    CREATE TABLE IF NOT EXISTS tasks (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
-        title TEXT NOT NULL,
-        description TEXT,
-        due_date TEXT,
-        priority TEXT NOT NULL DEFAULT 'Medium',
-        is_done INTEGER NOT NULL DEFAULT 0,
-        position INTEGER NOT NULL DEFAULT 0,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
-    )
-    """)
-    cols = [r["name"] for r in conn.execute("PRAGMA table_info(tasks)").fetchall()]
-    if "position" not in cols:
-        conn.execute("ALTER TABLE tasks ADD COLUMN position INTEGER NOT NULL DEFAULT 0")
-        rows = conn.execute("SELECT id FROM tasks ORDER BY id DESC").fetchall()
-        for pos, row in enumerate(rows):
-            conn.execute("UPDATE tasks SET position = ? WHERE id = ?", (pos, row["id"]))
-
-    conn.commit()
-    conn.close()
 
 init_db()
 
+
+def now_ist_str():
+    """Current time in IST as a string, e.g. '2026-11-20 21:45:17'.
+
+    MongoDB stores real datetimes as UTC, so we store IST as text
+    instead, so Atlas shows the IST time directly.
+    """
+    return datetime.now(timezone.utc).astimezone(
+        ZoneInfo("Asia/Kolkata")
+    ).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def current_user_id():
+    """ObjectId of the logged-in user, or None if the session is stale.
+
+    After the SQLite -> MongoDB switch, an old session cookie holds a
+    number (1, 2, ...) instead of an ObjectId string. That is not a
+    valid user any more; returning None logs the user out cleanly.
+    """
+    try:
+        return ObjectId(session["user_id"])
+    except (InvalidId, TypeError, KeyError):
+        return None
+
+
 def require_login():
-    if "user_id" not in session:
+    """True if logged in, else redirect to login. Used at the top of routes."""
+    if "user_id" not in session or current_user_id() is None:
+        session.clear()
         return redirect(url_for("login"))
     return None
 
 
-def get_task(conn, task_id):
-    return conn.execute(
-        "SELECT * FROM tasks WHERE id = ? AND user_id = ?",
-        (task_id, session["user_id"]),
-    ).fetchone()
+def to_task(doc):
+    """MongoDB document -> dict the templates already expect.
+
+    Templates use task['id']; MongoDB stores the id as _id (an ObjectId).
+    This adds a plain string 'id' and leaves every other field alone,
+    so no template has to change.
+    """
+    if doc is None:
+        return None
+    d = dict(doc)
+    d["id"] = str(doc["_id"])
+    return d
 
 
+def get_task(task_id):
+    # Ownership check in the query itself: a task is only found if it
+    # belongs to the logged-in user. Trying another user's id returns None.
+    try:
+        oid = ObjectId(task_id)
+    except (InvalidId, TypeError):
+        return None
+    return to_task(
+        tasks_col.find_one({"_id": oid, "user_id": current_user_id()})
+    )
+
+
+# The notes home page is parked, not deleted: the tasks list is the
+# landing page now (same choice as the SQLite version). To bring notes
+# back, uncomment this route and point login() at home again.
 # @app.route("/", methods=["GET", "POST"])
 # def home():
-#     if "user_id" not in session:
-#         return redirect(url_for("login"))
-
-#     conn = get_db()
-
+#     redirect_to_login = require_login()
+#     if redirect_to_login:
+#         return redirect_to_login
+#
+#     uid = current_user_id()
+#
 #     if request.method == "POST":
 #         note = request.form["note"].strip()
 #         if not note:
 #             flash("Note cannot be empty.")
 #         else:
-#             conn.execute(
-#                 "INSERT INTO notes (user_id, note) VALUES (?, ?)",
-#                 (session["user_id"], note),
+#             notes_col.insert_one(
+#                 {
+#                     "user_id": uid,
+#                     "note": note,
+#                     "created_at": now_ist_str(),
+#                 }
 #             )
-#             conn.commit()
-#             conn.close()
 #             flash("Note saved.")
+#             # Post/Redirect/Get: after a POST, redirect so a browser
+#             # refresh does not insert the same note twice.
 #             return redirect(url_for("home"))
-
-#     notes = conn.execute(
-#         "SELECT * FROM notes WHERE user_id = ? ORDER BY id DESC",
-#         (session["user_id"],),
-#     ).fetchall()
-#     conn.close()
+#
+#     notes = list(
+#         notes_col.find({"user_id": uid}).sort("_id", -1)
+#     )
 #     return render_template("home.html", email=session["user_email"], notes=notes)
-
 
 
 @app.route("/")
@@ -114,80 +154,29 @@ def list_tasks():
     if redirect_to_login:
         return redirect_to_login
 
-    from datetime import date
-
+    uid = current_user_id()
     task_filter = request.args.get("filter", "all")
-    conn = get_db()
+    query = {"user_id": uid}
+    sort = [("position", 1), ("_id", -1)]
     if task_filter == "pending":
-        tasks = conn.execute(
-            "SELECT * FROM tasks WHERE user_id = ? AND is_done = 0 ORDER BY position ASC, id DESC",
-            (session["user_id"],),
-        ).fetchall()
+        query["is_done"] = False
     elif task_filter == "done":
-        tasks = conn.execute(
-            "SELECT * FROM tasks WHERE user_id = ? AND is_done = 1 ORDER BY position ASC, id DESC",
-            (session["user_id"],),
-        ).fetchall()
+        query["is_done"] = True
     elif task_filter == "overdue":
-        tasks = conn.execute(
-            "SELECT * FROM tasks WHERE user_id = ? AND is_done = 0 "
-            "AND due_date IS NOT NULL AND due_date != '' AND due_date < ? "
-            "ORDER BY due_date ASC",
-            (session["user_id"], date.today().isoformat()),
-        ).fetchall()
+        # due_date is stored as "YYYY-MM-DD" text (or None when empty),
+        # so a plain string comparison finds dates before today.
+        query["is_done"] = False
+        query["due_date"] = {"$ne": None, "$lt": date.today().isoformat()}
+        sort = [("due_date", 1)]
     else:
         task_filter = "all"
-        tasks = conn.execute(
-            "SELECT * FROM tasks WHERE user_id = ? ORDER BY position ASC, id DESC",
-            (session["user_id"],),
-        ).fetchall()
-    conn.close()
+    tasks = [to_task(doc) for doc in tasks_col.find(query).sort(sort)]
     return render_template("tasks.html", tasks=tasks, task_filter=task_filter)
-
-@app.route("/tasks/<int:task_id>/edit", methods=["GET", "POST"])
-def edit_task(task_id):
-    redirect_to_login = require_login()
-    if redirect_to_login:
-        return redirect_to_login
-
-    conn = get_db()
-    task = get_task(conn, task_id)   # <-- get_task invoked here
-    if task is None:
-        conn.close()
-        flash("Task not found.")
-        return redirect(url_for("list_tasks"))
-
-    if request.method == "POST":
-        title = request.form["title"].strip()
-        description = request.form["description"].strip()
-        due_date = request.form["due_date"].strip() or None
-        priority = request.form["priority"]
-        if priority not in ("Low", "Medium", "High"):
-            priority = "Medium"
-        if not title:
-            flash("Title is required.")
-            conn.close()
-            return render_template(
-                "task_form.html", task=task, form_action=url_for("edit_task", task_id=task_id)
-            )
-        conn.execute(
-            "UPDATE tasks SET title = ?, description = ?, due_date = ?, priority = ?, "
-            "updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?",
-            (title, description, due_date, priority, task_id, session["user_id"]),
-        )
-        conn.commit()
-        conn.close()
-        flash("Task updated.")
-        return redirect(url_for("list_tasks"))
-
-    conn.close()
-    return render_template(
-        "task_form.html", task=task, form_action=url_for("edit_task", task_id=task_id)
-    )
 
 
 @app.route("/tasks/new", methods=["GET", "POST"])
 def new_task():
+    today = date.today().isoformat()
     redirect_to_login = require_login()
     if redirect_to_login:
         return redirect_to_login
@@ -196,109 +185,172 @@ def new_task():
         title = request.form["title"].strip()
         description = request.form["description"].strip()
         due_date = request.form["due_date"].strip() or None
+        if due_date and due_date < today:
+            flash("Due date cannot be in the past.")
+            return render_template("task_form.html", task=None, form_action=url_for("new_task"), today=today)
         priority = request.form["priority"]
         if priority not in ("Low", "Medium", "High"):
             priority = "Medium"
         if not title:
             flash("Title is required.")
-            return render_template("task_form.html", task=None, form_action=url_for("new_task"))
+            return render_template("task_form.html", task=None,
+                       form_action=url_for("new_task"), today=today)
 
-        conn = get_db()
-        row = conn.execute(
-            "SELECT COALESCE(MIN(position), 0) AS min_pos FROM tasks WHERE user_id = ?",
-            (session["user_id"],),
-        ).fetchone()
-        position = row["min_pos"] - 1
-
-        conn.execute(
-            "INSERT INTO tasks (user_id, title, description, due_date, priority, position) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (session["user_id"], title, description, due_date, priority, position),
+        uid = current_user_id()
+        # New tasks go to the top of the list: one less than the
+        # smallest position this user has, so the order stays newest-first
+        # until the user drags tasks around.
+        first = tasks_col.find_one({"user_id": uid}, sort=[("position", 1)])
+        position = (first["position"] - 1) if first else 0
+        now = now_ist_str()
+        tasks_col.insert_one(
+            {
+                "user_id": uid,
+                "title": title,
+                "description": description,
+                "due_date": due_date,
+                "priority": priority,
+                "is_done": False,
+                "position": position,
+                "created_at": now,
+                "updated_at": now,
+            }
         )
-        conn.commit()
-        conn.close()
         flash("Task created.")
         return redirect(url_for("list_tasks"))
 
-    return render_template("task_form.html", task=None, form_action=url_for("new_task"))
+    return render_template("task_form.html", task=None,
+                       form_action=url_for("new_task"), today=today)
 
 
-@app.route("/tasks/<int:task_id>/toggle", methods=["POST"])
+
+@app.route("/tasks/<task_id>/edit", methods=["GET", "POST"])
+def edit_task(task_id):
+    today = date.today().isoformat()
+    redirect_to_login = require_login()
+    if redirect_to_login:
+        return redirect_to_login
+
+    task = get_task(task_id)
+    if task is None:
+        flash("Task not found.")
+        return redirect(url_for("list_tasks"))
+
+    if request.method == "POST":
+        title = request.form["title"].strip()
+        description = request.form["description"].strip()
+        due_date = request.form["due_date"].strip() or None
+        if due_date and due_date < today:
+            flash("Due date cannot be in the past.")
+            return render_template("task_form.html", task=task,
+                                   form_action=url_for("edit_task", task_id=task_id),
+                                   today=today)
+        priority = request.form["priority"]
+        if priority not in ("Low", "Medium", "High"):
+            priority = "Medium"
+        if not title:
+            flash("Title is required.")
+            return render_template("task_form.html", task=task,
+                                   form_action=url_for("edit_task", task_id=task_id),
+                                   today=today)
+        now = now_ist_str()
+        tasks_col.update_one(
+            {"_id": ObjectId(task_id), "user_id": current_user_id()},
+            {
+                "$set": {
+                    "title": title,
+                    "description": description,
+                    "due_date": due_date,
+                    "priority": priority,
+                    "updated_at": now,
+                }
+            },
+        )
+        flash("Task updated.")
+        return redirect(url_for("list_tasks"))
+
+    return render_template("task_form.html", task=task,
+                           form_action=url_for("edit_task", task_id=task_id),
+                           today=today)
+
+
+
+@app.route("/tasks/<task_id>/toggle", methods=["POST"])
 def toggle_task(task_id):
     redirect_to_login = require_login()
     if redirect_to_login:
         return redirect_to_login
-    conn = get_db()
-    task = get_task(conn, task_id)
+
+    task = get_task(task_id)
     if task is None:
-        conn.close()
         flash("Task not found.")
         return redirect(url_for("list_tasks"))
-    conn.execute(
-        "UPDATE tasks SET is_done = ? WHERE id = ? AND user_id = ?",
-        (0 if task["is_done"] else 1, task_id, session["user_id"]),
+    tasks_col.update_one(
+        {"_id": ObjectId(task_id), "user_id": current_user_id()},
+        {"$set": {"is_done": not task["is_done"]}},
     )
-    conn.commit()
-    conn.close()
     return redirect(url_for("list_tasks"))
 
 
-@app.route("/tasks/<int:task_id>/delete", methods=["POST"])
+@app.route("/tasks/<task_id>/delete", methods=["POST"])
 def delete_task(task_id):
     redirect_to_login = require_login()
     if redirect_to_login:
         return redirect_to_login
-    conn = get_db()
-    task = get_task(conn, task_id)
+
+    task = get_task(task_id)
     if task is None:
-        conn.close()
         flash("Task not found.")
         return redirect(url_for("list_tasks"))
-    conn.execute(
-        "DELETE FROM tasks WHERE id = ? AND user_id = ?", (task_id, session["user_id"])
-    )
-    conn.commit()
-    conn.close()
+    tasks_col.delete_one({"_id": ObjectId(task_id), "user_id": current_user_id()})
     flash("Task deleted.")
     return redirect(url_for("list_tasks"))
 
 
 @app.route("/tasks/reorder", methods=["POST"])
 def reorder_tasks():
+    """Save a dragged new order. The page sends JSON: {"order": ["...", "..."]}.
+
+    Only the logged-in user's own task ids are accepted; any other id
+    in the list is ignored. Tasks not in the list keep their order
+    after the listed ones.
+    """
     redirect_to_login = require_login()
     if redirect_to_login:
         return redirect_to_login
 
     data = request.get_json(silent=True) or {}
-    conn = get_db()
-    own_ids = [r["id"] for r in conn.execute(
-        "SELECT id FROM tasks WHERE user_id = ? ORDER BY position ASC, id DESC",
-        (session["user_id"],)).fetchall()]
+    uid = current_user_id()
+    own_ids = [
+        str(doc["_id"])
+        for doc in tasks_col.find({"user_id": uid}).sort(
+            [("position", 1), ("_id", -1)]
+        )
+    ]
     wanted = []
     for tid in data.get("order", []):
         try:
-            tid = int(tid)
-        except (TypeError, ValueError):
+            ObjectId(tid)
+        except (InvalidId, TypeError):
             continue
         if tid in own_ids and tid not in wanted:
             wanted.append(tid)
     rest = [tid for tid in own_ids if tid not in wanted]
     for pos, tid in enumerate(wanted + rest):
-        conn.execute(
-            "UPDATE tasks SET position = ? WHERE id = ? AND user_id = ?",
-            (pos, tid, session["user_id"]))
-    conn.commit()
-    conn.close()
+        tasks_col.update_one(
+            {"_id": ObjectId(tid), "user_id": uid},
+            {"$set": {"position": pos}},
+        )
     return jsonify({"ok": True})
 
 
-
-@app.route("/register", methods=["GET", "POST"]) #get - view, #post- create
+@app.route("/register", methods=["GET", "POST"])
 def register():
     if request.method == "POST":
         email = request.form["email"].strip().lower()
         password = request.form["password"]
         confirm = request.form["confirm"]
+
         if "@" not in email:
             flash("Please enter a valid email address.")
         elif len(password) < 6:
@@ -306,20 +358,21 @@ def register():
         elif password != confirm:
             flash("Passwords do not match.")
         else:
-            conn = get_db()
             try:
-                conn.execute(
-                    "INSERT INTO users (email, password_hash) VALUES (?, ?)",
-                    (email, generate_password_hash(password)),
+                now = now_ist_str()
+                users_col.insert_one(
+                    {
+                        "email": email,
+                        "password_hash": generate_password_hash(password),
+                        "created_at": now,
+                    }
                 )
-                conn.commit()
-            except sqlite3.IntegrityError:
+            except DuplicateKeyError:
                 flash("That email is already registered. Try logging in.")
-                conn.close()
                 return render_template("register.html")
-            conn.close()
             flash("Account created. Now log in.")
             return redirect(url_for("login"))
+
     return render_template("register.html")
 
 
@@ -328,29 +381,25 @@ def login():
     if request.method == "POST":
         email = request.form["email"].strip().lower()
         password = request.form["password"]
-        conn = get_db()
-        user = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone() #columns all
-        conn.close()
+
+        user = users_col.find_one({"email": email})
+
         if user and check_password_hash(user["password_hash"], password):
-            session["user_id"] = user["id"]
+            session["user_id"] = str(user["_id"])
             session["user_email"] = user["email"]
             return redirect(url_for("list_tasks"))
+
         flash("Invalid email or password.")
+
     return render_template("login.html")
 
 
 @app.route("/logout")
 def logout():
-    session.clear() #cookies removed
+    session.clear()
     flash("Logged out.")
     return redirect(url_for("login"))
 
+
 if __name__ == "__main__":
     app.run(debug=True)
-
-# cols = [r["name"] for r in conn.execute("PRAGMA table_info(tasks)").fetchall()]
-# if "position" not in cols:
-#     conn.execute("ALTER TABLE tasks ADD COLUMN position INTEGER NOT NULL DEFAULT 0")
-#     rows = conn.execute("SELECT id FROM tasks ORDER BY id DESC").fetchall()
-#     for pos, row in enumerate(rows):
-#         conn.execute("UPDATE tasks SET position = ? WHERE id = ?", (pos, row["id"]))
